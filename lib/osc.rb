@@ -1,6 +1,8 @@
 require 'forwardable'
 require 'socket'
 
+# Of particular interest are OSC::Client, OSC::Server, OSC::Message and
+# OSC::Bundle.
 module OSC
   # abstract class for atomic data types
   class DataType
@@ -312,7 +314,6 @@ module OSC
       Packet.decode raw
     end
 
-    # pat can be a Regexp or String.
     # 	prock.respond_to?(:call) #=> true
     # Pass either prock or a block.
     def add_method(pat, prock=nil, &block)

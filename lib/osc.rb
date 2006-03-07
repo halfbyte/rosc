@@ -57,7 +57,7 @@ module OSC
   # A sequence of non-null ASCII characters followed by a null, followed by 0-3
   # additional null characters to make the total number of bits a multiple of
   # 32.
-  class String < DataType
+  class OSCString < DataType
     def tag; 's'; end
     def encode
       padding(@val.sub(/\000.*\Z/, '') + "\000")
@@ -87,7 +87,7 @@ module OSC
 	  case tags[i]
 	  when ?i; @args << Int32.new(arg)
 	  when ?f; @args << Float32.new(arg)
-	  when ?s; @args << String.new(arg)
+	  when ?s; @args << OSCString.new(arg)
 	  when ?b; @args << Blob.new(arg)
 	  when ?*; @args << arg
 	  else;    raise ArgumentError, 'unknown type tag'
@@ -96,7 +96,7 @@ module OSC
 	  case arg
 	  when Integer;  @args << Int32.new(arg)
 	  when Float;    @args << Float32.new(arg)
-	  when ::String; @args << String.new(arg)
+	  when String;   @args << OSCString.new(arg)
 	  when DataType; @args << arg
 	  end
 	end
@@ -108,8 +108,8 @@ module OSC
     end
 
     def encode
-      s = String.new(@address).encode
-      s << String.new(tags).encode
+      s = OSCString.new(@address).encode
+      s << OSCString.new(tags).encode
       s << @args.collect{|arg| arg.encode}.join
     end
 
@@ -140,7 +140,7 @@ module OSC
     def to_a; contents; end
 
     def encode()
-      s = String.new('#bundle').encode
+      s = OSCString.new('#bundle').encode
       s << @timetag.encode
       s << @args.collect{ |x| 
 	x2 = x.encode; [x2.size].pack('N') + x2
@@ -264,7 +264,7 @@ module OSC
 	      args << Float32.new(f)
 	    when 's'
 	      s = decode_string(io)
-	      args << String.new(s)
+	      args << OSCString.new(s)
 	    when 'b'
 	      b = decode_blob(io)
 	      args << Blob.new(b)

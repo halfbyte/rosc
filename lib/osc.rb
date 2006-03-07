@@ -28,7 +28,7 @@ module OSC
   end
 
   # 64-bit big-endian fixed-point time tag
-  class Timetag < DataType
+  class TimeTag < DataType
     def initialize(t)
       case t
       when NIL # immediately
@@ -303,12 +303,13 @@ module OSC
   # for sending replies.
   class Server
     attr_accessor :client
+
     def initialize
       @cb = []
     end
 
     # Prototype method that does nothing interesting. You should recv one raw
-    # OSC packet of data and return Packet.new(raw)
+    # OSC packet of data and return Packet.decode(raw)
     def recv_packet
       raw = recv
       Packet.decode raw

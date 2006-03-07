@@ -374,6 +374,10 @@ module OSC
 	end
       end
     end
+
+    def send(payload)
+      @client.send(payload)
+    end
   end
 
   class UDPClient < UDPSocket

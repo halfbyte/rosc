@@ -1,3 +1,4 @@
+require 'time'
 require 'forwardable'
 require 'socket'
 
@@ -15,9 +16,8 @@ module OSC
     def to_f; @val.to_f; end
     def to_s; @val.to_s; end
 
-    protected
-    def padding(s)
-      s + ("\000" * ((4 - (s.size % 4)) % 4))
+    def self.padding(s)
+      s + ("\000" * ((4 - s.size)%4))
     end
   end
 
@@ -29,23 +29,30 @@ module OSC
 
   # 64-bit big-endian fixed-point time tag
   class TimeTag < DataType
+    JAN_1970 = 0x83aa7e80
+    # nil:: immediately
+    # Numeric:: seconds since TimeTag::REFERENCE
     def initialize(t)
       case t
       when NIL # immediately
-	t1 = 0
-	t2 = 1
+	@int = 0
+	@frac = 1
       when Numeric
-	t1, fr = t.divmod(1)
-	t2 = (fr * (2**32)).to_i
+	@int, fr = t.divmod(1)
+	@frac = (fr * (2**32)).to_i
       when Time
-	t1, fr = (t.to_f + 2208988800).divmod(1)
-	t2 = (fr * (2**32)).to_i
+	@int, fr = (t.to_f+JAN_1970).divmod(1)
+	@frac = (fr * (2**32)).to_i
       else
 	raise ArgumentError, 'invalid time'
       end
-      @encoded = [t1, t2].pack('N2')
     end
-    def encode; @encoded; end
+    def to_i; to_f.to_i; end
+    def to_f; @int.to_f + @frac.to_f/(2**32); end
+    def to_a; [@int,@frac]; end
+    def to_s; to_time.to_s; end
+    def to_time; Time.at(to_f-JAN_1970); end
+    def encode; to_a.pack('NN'); end
   end
 
   # 32-bit big-endian IEEE 754 floating point number
@@ -60,7 +67,7 @@ module OSC
   class OSCString < DataType
     def tag; 's'; end
     def encode
-      padding(@val.sub(/\000.*\Z/, '') + "\000")
+      DataType.padding(@val.sub(/\000.*\Z/, '') + "\000")
     end
   end
 
@@ -70,7 +77,7 @@ module OSC
   class Blob < DataType
     def tag; 'b'; end
     def encode; 
-      padding([@val.size].pack('N') + @val)
+      DataType.padding([@val.size].pack('N') + @val)
     end
   end
 

@@ -50,7 +50,7 @@ class TC_OSC < Test::Unit::TestCase
     b = 'quux'
     m = Message.new '/foobar', 'ssi', a, b, 1
     assert_equal "/foobar\000"+",ssi\000\000\000\000"+
-      "foo\000"+"quux\000\000\000\000"+"\001\000\000\000", m.encode
+      "foo\000"+"quux\000\000\000\000"+"\000\000\000\001", m.encode
   end
 
   def test_bundle

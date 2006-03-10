@@ -31,7 +31,7 @@ module OSC
   class TimeTag < DataType
     JAN_1970 = 0x83aa7e80
     # nil:: immediately
-    # Numeric:: seconds since TimeTag::REFERENCE
+    # Numeric:: seconds since January 1, 1900 00:00
     def initialize(t)
       case t
       when NIL # immediately
@@ -111,13 +111,13 @@ module OSC
     end
 
     def tags
-      ',' + @args.collect{|arg| arg.tag}.join
+      ',' + @args.collect{|x| x.tag}.join
     end
 
     def encode
       s = OSCString.new(@address).encode
       s << OSCString.new(tags).encode
-      s << @args.collect{|arg| arg.encode}.join
+      s << @args.collect{|x| x.encode}.join
     end
 
     def to_a; @args.collect{|x| x.val}; end
@@ -138,8 +138,14 @@ module OSC
   class Bundle
     attr_accessor :timetag
 
-    def initialize(timetag=nil, *args)
-      @timetag = TimeTag.new(timetag) unless timetag.nil?
+    def initialize(t=nil, *args)
+      @timetag = 
+	case t
+	when TimeTag
+	  t
+	else
+	  TimeTag.new(t)
+	end
       @args = args
     end
 
@@ -149,9 +155,7 @@ module OSC
     def encode()
       s = OSCString.new('#bundle').encode
       s << @timetag.encode
-      s << @args.collect{ |x| 
-	x2 = x.encode; [x2.size].pack('N') + x2
-      }.join
+      s << @args.collect{ |x| x2 = x.encode; [x2.size].pack('N') + x2 }.join
     end
 
     extend Forwardable
@@ -166,10 +170,10 @@ module OSC
     undef_method :zip
   end
 
-  # Unit of transmission. 
+  # Unit of transmission.  Really needs revamping
   class Packet
 
-    # Helper class that acts a little bit like IO for parsing
+    # Helper class that acts a little bit like IO for parsing.
     class PO
       def initialize(str) 
 	@str, @index = str, 0 
@@ -294,6 +298,24 @@ module OSC
       decode2(nil, packet, list)
       list
     end
+
+    attr_accessor :contents
+    def initialize(contents)
+      @contents = 
+	case contents
+	when Message, Bundle
+	  contents
+	else
+	  Message.new contents # last ditch effort
+	end
+    end
+
+    def encode
+      s = @contents.encode
+      [s.size].pack('N') + s
+    end
+
+    def size; encode.size; end
   end
 
   # Base class for clients
@@ -324,6 +346,7 @@ module OSC
 
     # 	prock.respond_to?(:call) #=> true
     # Pass either prock or a block.
+    # TODO this pattern stuff needs to be moved out of Server
     def add_method(pat, prock=nil, &block)
       case pat
       when NIL; re = pat
@@ -394,4 +417,4 @@ module OSC
   end
 end
 
-# TODO TimeTag, Packet.decode, Pattern
+# TODO Packet, Pattern, nonstandard type tags

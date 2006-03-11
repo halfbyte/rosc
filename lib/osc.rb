@@ -318,18 +318,10 @@ module OSC
     def size; encode.size; end
   end
 
-  # Base class for clients
-  class Client
-    # pass in a Message or Bundle and get out a raw string ready to send on
-    # down the line
-    def encode(payload)
-      Packet.new(payload).encode
-    end
-  end
-
-  # Base class for servers.
-  # Just implement recv_packet (see the prototype here), and give it a Client
-  # for sending replies.
+  # Mixin for making servers.
+  # Your job is to read a packet and call +dispatch(Packet.decode(raw))+, ad
+  # infinitum.
+  # TODO
   class Server
     attr_accessor :client
 
@@ -410,9 +402,25 @@ module OSC
     end
   end
 
+  # Mixin for clients
+  module Client
+    # Message, Bundle, or as a shortcut the parameters to construct a Message.
+    def encode(payload)
+      case payload
+      when Message,Bundle
+      when Array
+	payload = Message.new(*payload)
+      else 
+	raise ArgumentError
+      end
+      payload.encode
+    end
+  end
+
   class UDPClient < UDPSocket
-    def send(payload)
-      super(encode(payload))
+    include Client
+    def send(mesg, flags, *args)
+      super encode(mesg), flags, *args
     end
   end
 end

@@ -29,6 +29,20 @@ module OSC
     end
 
     # Do these two patterns intersect?
+    #-- 
+    # This might be improved by following the (much simpler, but related)
+    # algorithm here:
+    #
+    # http://groups.google.com/group/comp.theory/browse_frm/thread/f33e033269bd5ab0/c87e19081f45454c?lnk=st&q=regular+expression+intersection&rnum=1&hl=en#c87e19081f45454c
+    #
+    # That is, convert each regexp into an NFA, then generate the set of valid
+    # state pairs, then check if the pair of final states is included.
+    # That's basically what I'm doing here, but I'm not generating all the
+    # state pairs, I'm just doing a search. My way may be faster and/or
+    # smaller, or it may not.  My initial feeling is that it is faster since
+    # we're basically doing a depth-first search and OSC patterns are going to
+    # tend to be fairly simple. Still it might be a fun experiment for the
+    # masochistic.
     def self.intersect?(s1,s2)
       r = /\*|\?|\[[^\]]*\]|\{[^\}]*\}|./
       a = s1.to_s.scan r

@@ -92,4 +92,42 @@ class TC_OSC < Test::Unit::TestCase
 
   def test_client
   end
+
+  def test_pattern
+    # test *
+    assert Pattern.intersect?('/*/bar/baz','/foo/*/baz')
+    assert Pattern.intersect?('/f*','/*o')
+    assert ! Pattern.intersect?('/f*','/foo/bar')
+    assert ! Pattern.intersect?('/f*','/bar')
+    # test ?
+    assert Pattern.intersect?('/fo?/bar','/foo/?ar')
+    assert ! Pattern.intersect?('/foo?','/foo')
+    # test []
+    assert Pattern.intersect?('/foo/ba[rz]','/foo/bar')
+    assert Pattern.intersect?('/[!abcde]/a','/[!abcde]/a')
+    assert Pattern.intersect?('/[!abcde]/a','/f/a')
+    assert Pattern.intersect?('/[!abcde]/a','/[abf]/a')
+    assert ! Pattern.intersect?('/[ab]/a','/[!abc]/a')
+    assert ! Pattern.intersect?('/[abcde]','/[!abcde]')
+    assert ! Pattern.intersect?('/[abcde]','/f')
+    assert ! Pattern.intersect?('/[!abcde]','/a')
+    # test {}
+    assert Pattern.intersect?('/{foo,bar,baz}','/foo')
+    assert Pattern.intersect?('/{foo,bar,baz}','/bar')
+    assert Pattern.intersect?('/{foo,bar,baz}','/baz')
+    assert ! Pattern.intersect?('/{foo,bar,baz}','/quux')
+    assert ! Pattern.intersect?('/{foo,bar,baz}','/fo')
+    # * with *,?,[]
+    assert Pattern.intersect?('/*/bar','/*/ba?')
+    assert Pattern.intersect?('/*/bar','/*x/ba?')
+    assert Pattern.intersect?('/*/bar','/?/ba?')
+    assert Pattern.intersect?('/*/bar','/?x/ba?')
+    assert Pattern.intersect?('/*/bar','/[abcde]/ba?')
+    assert Pattern.intersect?('/*/bar','/[abcde]x/ba?')
+    assert Pattern.intersect?('/*/bar','/[!abcde]/ba?')
+    assert Pattern.intersect?('/*/bar','/[!abcde]x/ba?')
+    # ? with []
+    assert Pattern.intersect?('/?','/[abcde]')
+    assert Pattern.intersect?('/?','/[!abcde]')
+  end
 end

@@ -320,59 +320,34 @@ module OSC
 
   # Mixin for making servers.
   # Your job is to read a packet and call +dispatch(Packet.decode(raw))+, ad
-  # infinitum.
-  # TODO
-  class Server
-    attr_accessor :client
-
-    def initialize
-      @cb = []
-    end
-
-    # Prototype method that does nothing interesting. You should recv one raw
-    # OSC packet of data and return Packet.decode(raw)
-    def recv_packet
-      raw = recv
-      Packet.decode raw
-    end
-
+  # infinitum. You might mixin Client too for sending replies.
+  module Server
     # 	prock.respond_to?(:call) #=> true
     # Pass either prock or a block.
-    # TODO this pattern stuff needs to be moved out of Server
     def add_method(pat, prock=nil, &block)
-      case pat
-      when NIL; re = pat
-      when Regexp; re = pat
-      when String
-	pat = pat.dup
-	pat.gsub!(/[.^(|)]/, '\\1')
-	pat.gsub!(/\?/, '[^/]')
-	pat.gsub!(/\*/, '[^/]*')
-	pat.gsub!(/\[!/, '[^')
-	pat.gsub!(/\{/, '(')
-	pat.gsub!(/,/, '|')
-	pat.gsub!(/\}/, ')')
-	pat.gsub!(/\A/, '\A')
-	pat.gsub!(/\Z/, '\Z')
-	re = Regexp.new(pat)
-      else
-	raise ArgumentError, 'invalid pattern'
-      end
+      pat = Pattern.new(pat)
       if block_given? and prock
 	raise ArgumentError, 'Specify either a block or a Proc, not both.'
       end
       prock = block if block_given?
       raise ArgumentError, "Prock doesn't respond to :call"
-      @cb << [re, prock]
+      @cb << [pat, prock]
     end
 
     def dispatch(mesg)
-      @cb.each do |re, obj|
-	if re.nil? or re =~ mesg.address
-	  obj.accept(mesg)
+      case mesg
+      when Bundle; dispatch_bundle(mesg)
+      when Message
+	@cb.each do |pat, obj|
+	  if pat.nil? or Pattern.intersect?(pat, mesg.address)
+	    obj.call(mesg)
+	  end
 	end
+      else
+	raise ArgumentError, "bad mesg"
       end
     end
+
     def dispatch_bundle(b)
       b.each {|m| dispatch m}
     end
@@ -395,10 +370,6 @@ module OSC
 	  dispatch p
 	end
       end
-    end
-
-    def send(payload)
-      @client.send(payload)
     end
   end
 
@@ -425,4 +396,5 @@ module OSC
   end
 end
 
+require 'osc/pattern'
 # TODO Packet, Pattern, nonstandard type tags

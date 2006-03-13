@@ -3,6 +3,16 @@ require 'forwardable'
 require 'socket'
 require 'stringio'
 
+# Test for broken pack/unpack
+if [1].pack('n') == "\001\000"
+  warn <<EOF
+WARNING: Your ruby is buggy, expect endianness errors.
+         See http://hans.fugal.net/blog/mac/ruby-pack.html
+
+EOF
+end
+
+
 class StringIO
   def skip(n)
     self.seek(n, IO::SEEK_CUR)

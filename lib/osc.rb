@@ -1,6 +1,16 @@
 require 'time'
 require 'forwardable'
 require 'socket'
+require 'stringio'
+
+class StringIO
+  def skip(n)
+    self.seek(n, IO::SEEK_CUR)
+  end
+  def skip_padding 
+    self.skip((4-pos)%4)
+  end
+end
 
 # Of particular interest are OSC::Client, OSC::Server, OSC::Message and
 # OSC::Bundle.
@@ -40,6 +50,8 @@ module OSC
       when Numeric
 	@int, fr = t.divmod(1)
 	@frac = (fr * (2**32)).to_i
+      when Array
+	@int,@frac = t
       when Time
 	@int, fr = (t.to_f+JAN_1970).divmod(1)
 	@frac = (fr * (2**32)).to_i
@@ -136,7 +148,7 @@ module OSC
 
   # bundle of messages and/or bundles
   class Bundle
-    attr_accessor :timetag
+    attr_accessor :timetag, :args
 
     def initialize(t=nil, *args)
       @timetag = 
@@ -171,53 +183,16 @@ module OSC
   end
 
   # Unit of transmission.  Really needs revamping
-  class Packet
-
-    # Helper class that acts a little bit like IO for parsing.
-    class PO
-      def initialize(str) 
-	@str, @index = str, 0 
-      end
-
-      def rem 
-	@str.length - @index 
-      end
-
-      def eof?
-	rem <= 0 
-      end
-
-      def skip(n) 
-	@index += n 
-      end
-
-      def skip_padding 
-	skip((4 - (@index % 4)) % 4) 
-      end
-
-      def getn(n)
-	raise EOFError if rem < n
-	s = @str[@index, n]
-	skip(n)
-	s
-      end
-
-      def getc
-	raise EOFError if rem < 1
-	c = @str[@index]
-	skip(1)
-	c
-      end
-    end
-
+  module Packet
+    # TODO move these into e.g. Int32.decode and return e.g. Int32.
     def self.decode_int32(io)
-      i = io.getn(4).unpack('N')[0]
-      i = 2**32 - i if i > (2**31-1)
+      i = io.read(4).unpack('N')[0]
+      i = 2**32 - i if i > (2**31-1) # two's complement
       i
     end
 
     def self.decode_float32(io)
-      f = io.getn(4).unpack('g')[0]
+      f = io.read(4).unpack('g')[0]
       f
     end
 
@@ -231,54 +206,52 @@ module OSC
     end
 
     def self.decode_blob(io)
-      l = io.getn(4).unpack('N')[0]
-      b = io.getn(l)
+      l = io.read(4).unpack('N')[0]
+      b = io.read(l)
       io.skip_padding
       b
     end
 
     def self.decode_timetag(io)
-      t1 = io.getn(4).unpack('N')[0]
-      t2 = io.getn(4).unpack('N')[0]
-      [t1, t2]
+      t1 = io.read(4).unpack('N')[0]
+      t2 = io.read(4).unpack('N')[0]
+      TimeTag.new [t1,t2]
     end
 
-    def self.decode2(time, packet, list)
-      io = PO.new(packet)
+    def self.decode(packet)
+      io = StringIO.new(packet)
       id = decode_string(io)
       if id =~ /\A\#/
 	if id == '#bundle'
-	  t1, t2 = decode_timetag(io)
-	  if t1 == 0 and t2 == 1
-	    time = nil
-	  else
-	    time = t1 + t2.to_f / (2**32)
-	  end
+	  b = Bundle.new(decode_timetag(io))
 	  until io.eof?
-	    l = io.getn(4).unpack('N')[0]
-	    s = io.getn(l)
-	    decode2(time, s, list)
+	    l = io.read(4).unpack('N')[0]
+	    s = io.read(l)
+	    b << decode(s)
 	  end
+	  b
 	end
       elsif id =~ /\//
-	address = id
+	m = Message.new(id)
 	if io.getc == ?,
 	  tags = decode_string(io)
-	  args = []
 	  tags.scan(/./) do |t|
 	    case t
 	    when 'i'
 	      i = decode_int32(io)
-	      args << Int32.new(i)
+	      m << Int32.new(i)
 	    when 'f'
 	      f = decode_float32(io)
-	      args << Float32.new(f)
+	      m << Float32.new(f)
 	    when 's'
 	      s = decode_string(io)
-	      args << OSCString.new(s)
+	      m << OSCString.new(s)
 	    when 'b'
 	      b = decode_blob(io)
-	      args << Blob.new(b)
+	      m << Blob.new(b)
+
+	    # right now we skip over nonstandard datatypes, but we'll want to
+	    # add these datatypes too.
 	    when /[htd]/; io.read(8)
 	    when 'S'; decode_string(io)
 	    when /[crm]/; io.read(4)
@@ -286,40 +259,16 @@ module OSC
 	    end
 	  end
 	end
-	list << [time, Message.new(address, nil, *args)]
+	m
       end
     end
 
     private_class_method :decode_int32, :decode_float32, :decode_string,
-      :decode_blob, :decode_timetag, :decode2
-
-    def self.decode(packet)
-      list = []
-      decode2(nil, packet, list)
-      list
-    end
-
-    attr_accessor :contents
-    def initialize(contents)
-      @contents = 
-	case contents
-	when Message, Bundle
-	  contents
-	else
-	  Message.new contents # last ditch effort
-	end
-    end
-
-    def encode
-      s = @contents.encode
-      [s.size].pack('N') + s
-    end
-
-    def size; encode.size; end
+      :decode_blob, :decode_timetag
   end
 
   # Mixin for making servers.
-  # Your job is to read a packet and call +dispatch(Packet.decode(raw))+, ad
+  # Your job is to read a packet and call dispatch(Packet.decode(raw)), ad
   # infinitum. You might mixin Client too for sending replies.
   module Server
     # 	prock.respond_to?(:call) #=> true
@@ -331,6 +280,7 @@ module OSC
       end
       prock = block if block_given?
       raise ArgumentError, "Prock doesn't respond to :call"
+      @cb ||= []
       @cb << [pat, prock]
     end
 
@@ -342,7 +292,7 @@ module OSC
 	  if pat.nil? or Pattern.intersect?(pat, mesg.address)
 	    obj.call(mesg)
 	  end
-	end
+	end unless @cb.nil?
       else
 	raise ArgumentError, "bad mesg"
       end
@@ -397,4 +347,4 @@ module OSC
 end
 
 require 'osc/pattern'
-# TODO Packet, Pattern, nonstandard type tags
+# TODO Packet.decode return a Bundle or Message, nonstandard type tags

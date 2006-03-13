@@ -76,15 +76,15 @@ class TC_OSC < Test::Unit::TestCase
   def test_packet
     m = Message.new '/foo','s','foo'
     b = Bundle.new nil,m
-    p1 = Packet.new m
-    p2 = Packet.new b
-    assert_equal 4+m.encode.size, p1.encode.size
-    assert_equal m.encode, p1.encode[4,m.encode.size]
-    assert_equal [m.encode.size], p1.encode[0,4].unpack('N')
-    assert_equal 4+b.encode.size, p2.size
 
-    p3 = Packet.decode(p1.encode)
-    assert_equal p1,p3
+    m2 = Packet.decode("/foo\000\000\000\000,s\000\000foo\000")
+    assert_equal m.address,m2.address
+    m2 = Packet.decode(m.encode)
+    assert_equal m.address,m2.address
+    assert_equal m.tags,m2.tags
+    assert_equal m.args.size,m2.args.size
+    b2 = Packet.decode(b.encode)
+    assert_equal b.args.size,b2.args.size
   end
 
   def test_server

@@ -15,21 +15,13 @@ class TC_OSC < Test::Unit::TestCase
     i = 42
     f = 3.14
 
-    dt = Int32.new i
-    assert_equal i,dt.to_i
-    assert_equal 'i',dt.tag
-    dt = Float32.new f
-    assert_equal f,dt.to_f
-    assert_equal 'f',dt.tag
-    dt = OSCString.new s
-    assert_equal s,dt.to_s
-    assert_equal 's',dt.tag
-    assert_equal s+"\000",dt.encode
-    b = File.read($0)
-    dt = Blob.new b
-    assert_equal b,dt.to_s
-    assert_equal 'b',dt.tag
-    assert_equal b.size+4 + (b.size+4)%4, dt.encode.size
+    assert_equal 'i', Packet.tag(i)
+    assert_equal 'f', Packet.tag(f)
+    assert_equal 's', Packet.tag(s)
+    assert_equal s+"\000", Packet.encode(s)
+    b = Blob.new(File.read($0))
+    assert_equal 'b', Packet.tag(b)
+    assert_equal b.size+4 + (b.size+4)%4, Packet.encode(b).size
   end
 
   def test_timetag
@@ -41,7 +33,7 @@ class TC_OSC < Test::Unit::TestCase
     assert_equal t3, tt.to_f
     assert_equal t3.floor, tt.to_i
     assert_equal t3.floor - t3, tt.to_i - tt.to_f
-    assert_equal [0,1].pack('NN'), TimeTag.new(nil).encode
+    assert_equal [0,1].pack('NN'), Packet.encode(TimeTag.new(nil))
     assert_equal t2.to_i,tt.to_time.to_i # to_f has roundoff error at the lsb
   end
 
@@ -50,7 +42,7 @@ class TC_OSC < Test::Unit::TestCase
     b = 'quux'
     m = Message.new '/foobar', 'ssi', a, b, 1
     assert_equal "/foobar\000"+",ssi\000\000\000\000"+
-      "foo\000"+"quux\000\000\000\000"+"\000\000\000\001", m.encode
+      "foo\000"+"quux\000\000\000\000"+"\000\000\000\001", Packet.encode(m)
   end
 
   def test_bundle
@@ -61,11 +53,11 @@ class TC_OSC < Test::Unit::TestCase
     b2 = Bundle.new(nil, b, m1)
 
     assert_equal 10, b.timetag.to_time.to_i - t.to_i
-    e = b2.encode
+    e = Packet.encode(b2)
     assert_equal '#bundle', e[0,7]
     assert_equal "\000\000\000\000\000\000\000\001", e[8,8]
     assert_equal '#bundle', e[16+4,7]
-    assert_equal '/foo', e[16+4+b.encode.size+4,4]
+    assert_equal '/foo', e[16+4+Packet.encode(b).size+4,4]
     assert_equal 0, e.size % 4
 
     assert_instance_of Array, b2.to_a
@@ -79,11 +71,11 @@ class TC_OSC < Test::Unit::TestCase
 
     m2 = Packet.decode("/foo\000\000\000\000,s\000\000foo\000")
     assert_equal m.address,m2.address
-    m2 = Packet.decode(m.encode)
+    m2 = Packet.decode(Packet.encode(m))
     assert_equal m.address,m2.address
     assert_equal m.tags,m2.tags
     assert_equal m.args.size,m2.args.size
-    b2 = Packet.decode(b.encode)
+    b2 = Packet.decode(Packet.encode(b))
     assert_equal b.args.size,b2.args.size
   end
 

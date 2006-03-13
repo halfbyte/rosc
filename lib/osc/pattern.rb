@@ -1,6 +1,6 @@
 require 'set'
 module OSC
-  class Pattern < OSCString
+  class Pattern < String
     def initialize(s)
       case s
       when Regexp # This is experimental
@@ -13,11 +13,11 @@ module OSC
 	s.gsub! /(\\\\)*\)/, "\1}"
 	s.gsub! /\\\\/, "\\"
       end
-      @val = s.to_s
+      super s
     end
 
     def regexp
-      s = Regexp.escape @val
+      s = Regexp.escape self
       s.gsub! /\\\?/, '[^/]'
       s.gsub! /\\\*/, '[^/]*'
       s.gsub! /\\\[!/, '[^'

@@ -15,30 +15,8 @@ end
 # Of particular interest are OSC::Client, OSC::Server, OSC::Message and
 # OSC::Bundle.
 module OSC
-  # abstract class for atomic data types
-  class DataType
-    attr_accessor :val
-    def initialize(val) 
-      @val = val 
-    end
-
-    def to_i; @val.to_i; end
-    def to_f; @val.to_f; end
-    def to_s; @val.to_s; end
-
-    def self.padding(s)
-      s + ("\000" * ((4 - s.size)%4))
-    end
-  end
-
-  # 32-bit big-endian two's complement integer
-  class Int32 < DataType
-    def tag; 'i'; end
-    def encode; [@val].pack 'N'; end
-  end
-
   # 64-bit big-endian fixed-point time tag
-  class TimeTag < DataType
+  class TimeTag
     JAN_1970 = 0x83aa7e80
     # nil:: immediately
     # Numeric:: seconds since January 1, 1900 00:00
@@ -64,33 +42,9 @@ module OSC
     def to_a; [@int,@frac]; end
     def to_s; to_time.to_s; end
     def to_time; Time.at(to_f-JAN_1970); end
-    def encode; to_a.pack('NN'); end
   end
 
-  # 32-bit big-endian IEEE 754 floating point number
-  class Float32 < DataType
-    def tag; 'f'; end
-    def encode; [@val].pack 'g'; end
-  end
-
-  # A sequence of non-null ASCII characters followed by a null, followed by 0-3
-  # additional null characters to make the total number of bits a multiple of
-  # 32.
-  class OSCString < DataType
-    def tag; 's'; end
-    def encode
-      DataType.padding(@val.sub(/\000.*\Z/, '') + "\000")
-    end
-  end
-
-  # An int32 size count, followed by that many 8-bit bytes of arbitrary binary
-  # data, followed by 0-3 additional zero bytes to make the total number of
-  # bits a multiple of 32.
-  class Blob < DataType
-    def tag; 'b'; end
-    def encode; 
-      DataType.padding([@val.size].pack('N') + @val)
-    end
+  class Blob < String
   end
 
   class Message
@@ -104,35 +58,27 @@ module OSC
       args.each_with_index do |arg, i|
 	if tags and tags[i]
 	  case tags[i]
-	  when ?i; @args << Int32.new(arg)
-	  when ?f; @args << Float32.new(arg)
-	  when ?s; @args << OSCString.new(arg)
-	  when ?b; @args << Blob.new(arg)
-	  when ?*; @args << arg
-	  else;    raise ArgumentError, 'unknown type tag'
+	  when ?i; @args << arg.to_i
+	  when ?f; @args << arg.to_f
+	  when ?s; @args << arg.to_s
+	  when ?b; @args << Blob.new(arg.to_s)
+	  else
+	    raise ArgumentError, 'unknown type tag'
 	  end
 	else
 	  case arg
-	  when Integer;  @args << Int32.new(arg)
-	  when Float;    @args << Float32.new(arg)
-	  when String;   @args << OSCString.new(arg)
-	  when DataType; @args << arg
+	  when Fixnum,Float,String,TimeTag,Blob
+	    @args << arg
 	  end
 	end
       end
     end
 
     def tags
-      ',' + @args.collect{|x| x.tag}.join
+      ',' + @args.collect{|x| Packet.tag(x)}.join
     end
 
-    def encode
-      s = OSCString.new(@address).encode
-      s << OSCString.new(tags).encode
-      s << @args.collect{|x| x.encode}.join
-    end
-
-    def to_a; @args.collect{|x| x.val}; end
+    def to_a; @args; end
 
     extend Forwardable
     include Enumerable
@@ -164,11 +110,6 @@ module OSC
     def contents; @args; end
     def to_a; contents; end
 
-    def encode()
-      s = OSCString.new('#bundle').encode
-      s << @timetag.encode
-      s << @args.collect{ |x| x2 = x.encode; [x2.size].pack('N') + x2 }.join
-    end
 
     extend Forwardable
     include Enumerable
@@ -184,7 +125,8 @@ module OSC
 
   # Unit of transmission.  Really needs revamping
   module Packet
-    # TODO move these into e.g. Int32.decode and return e.g. Int32.
+    # XXX I might fold this and its siblings back into the decode case
+    # statement
     def self.decode_int32(io)
       i = io.read(4).unpack('N')[0]
       i = 2**32 - i if i > (2**31-1) # two's complement
@@ -218,7 +160,10 @@ module OSC
       TimeTag.new [t1,t2]
     end
 
+    # Takes a string containing one packet
     def self.decode(packet)
+      # XXX I think it would have been better to use a StringScanner. Maybe I
+      # will convert it someday...
       io = StringIO.new(packet)
       id = decode_string(io)
       if id =~ /\A\#/
@@ -238,17 +183,13 @@ module OSC
 	  tags.scan(/./) do |t|
 	    case t
 	    when 'i'
-	      i = decode_int32(io)
-	      m << Int32.new(i)
+	      m << decode_int32(io)
 	    when 'f'
-	      f = decode_float32(io)
-	      m << Float32.new(f)
+	      m << decode_float32(io)
 	    when 's'
-	      s = decode_string(io)
-	      m << OSCString.new(s)
+	      m << decode_string(io)
 	    when 'b'
-	      b = decode_blob(io)
-	      m << Blob.new(b)
+	      m << decode_blob(io)
 
 	    # right now we skip over nonstandard datatypes, but we'll want to
 	    # add these datatypes too.
@@ -260,6 +201,43 @@ module OSC
 	  end
 	end
 	m
+      end
+    end
+
+    def self.pad(s)
+      s + ("\000" * ((4 - s.size)%4))
+    end
+
+    def self.tag(o)
+      case o
+      when Fixnum;  'i'
+      when TimeTag; 't'
+      when Float;   'f'
+      when Blob;    'b'
+      when String;  's'
+      else;         nil
+      end
+    end
+
+    def self.encode(o)
+      case o
+      when Fixnum;  [o].pack 'N'
+      when Float;   [o].pack 'g'
+      when Blob;    pad([o.size].pack('N') + o)
+      when String;  pad(o.sub(/\000.*\Z/, '') + "\000")
+      when TimeTag; o.to_a.pack('NN')
+
+      when Message
+	s = encode(o.address)
+	s << encode(o.tags)
+	s << o.args.collect{|x| encode(x)}.join
+
+      when Bundle
+	s = encode('#bundle')
+	s << encode(o.timetag)
+	s << o.args.collect { |x| 
+	  x2 = encode(x); [x2.size].pack('N') + x2 
+	}.join
       end
     end
 
@@ -334,7 +312,7 @@ module OSC
       else 
 	raise ArgumentError
       end
-      payload.encode
+      Packet.encode(payload)
     end
   end
 
@@ -347,4 +325,4 @@ module OSC
 end
 
 require 'osc/pattern'
-# TODO Packet.decode return a Bundle or Message, nonstandard type tags
+# TODO nonstandard type tags

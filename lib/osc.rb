@@ -5,11 +5,18 @@ require 'stringio'
 
 # Test for broken pack/unpack
 if [1].pack('n') == "\001\000"
-  warn <<EOF
-WARNING: Your ruby is buggy, expect endianness errors.
-         See http://hans.fugal.net/blog/mac/ruby-pack.html
-
-EOF
+  class String
+    alias_method :broken_unpack, :unpack
+    def unpack(spec)
+      broken_unpack(spec.tr("nNvV","vVnN"))
+    end
+  end
+  class Array
+    alias_method :broken_pack, :pack
+    def pack(spec)
+      broken_pack(spec.tr("nNvV","vVnN"))
+    end
+  end
 end
 
 

@@ -32,6 +32,7 @@ end
 # Of particular interest are OSC::Client, OSC::Server, OSC::Message and
 # OSC::Bundle.
 module OSC
+  MAX_MSG_SIZE=32768
   # 64-bit big-endian fixed-point time tag
   class TimeTag
     JAN_1970 = 0x83aa7e80
@@ -59,6 +60,7 @@ module OSC
     def to_a; [@int,@frac]; end
     def to_s; to_time.to_s; end
     def to_time; Time.at(to_f-JAN_1970); end
+    def now; TimeTag.new(Time.now); end
   end
 
   class Blob < String
@@ -274,7 +276,9 @@ module OSC
 	raise ArgumentError, 'Specify either a block or a Proc, not both.'
       end
       prock = block if block_given?
-      raise ArgumentError, "Prock doesn't respond to :call"
+      unless prock.respond_to?(:call)
+	raise ArgumentError, "Prock doesn't respond to :call"
+      end
       @cb ||= []
       @cb << [pat, prock]
     end
@@ -293,26 +297,15 @@ module OSC
       end
     end
 
-    def dispatch_bundle(b)
-      b.each {|m| dispatch m}
-    end
-
-    def serve
-      loop do
-	p = recv_packet
-	case p
-	when Bundle
-	  diff = p.time - TimeTag.now
-	  if diff <= 0
-	    dispatch_bundle p
-	  else
-	    Thread.fork do
-	      sleep diff
-	      dispatch_bundle p
-	    end
-	  end
-	when Message
-	  dispatch p
+    # May create a new thread to wait to dispatch according to p.timetag.
+    def dispatch_bundle(p)
+      diff = p.timetag.to_f - TimeTag.now
+      if diff <= 0
+	p.each {|m| dispatch m}
+      else
+	Thread.new do
+	  sleep diff
+	  p.each {|m| dispatch m}
 	end
       end
     end
@@ -339,7 +332,16 @@ module OSC
       super encode(mesg), flags, *args
     end
   end
+
+  class UDPServer < UDPSocket
+    include Server
+    def serve
+      loop do
+	p,@peer = recvfrom(MAX_MSG_SIZE)
+	dispatch Packet.decode(p)
+      end
+    end
+  end
 end
 
 require 'osc/pattern'
-# TODO nonstandard type tags

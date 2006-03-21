@@ -80,9 +80,23 @@ class TC_OSC < Test::Unit::TestCase
   end
 
   def test_server
-  end
+    s = UDPServer.new
+    s.bind('localhost','12345')
+    s.add_method('/foo/bar') { |msg| 
+      assert_equal 'si',msg.tags
+      assert_equal 'Hello, World!',msg[0]
+      assert_equal 42,msg[1]
+    }
+    t = Thread.new { s.serve } 
 
-  def test_client
+    c = UDPClient.new
+    c.connect('localhost','12345')
+    c.send(Message.new("/foo/bar",'si','Hello, World!',42),0)
+
+    Thread.new { 
+      sleep 1
+      Thread.kill t
+    }
   end
 
   def test_pattern

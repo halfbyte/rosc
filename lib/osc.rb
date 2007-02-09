@@ -1,7 +1,7 @@
 require 'time'
 require 'forwardable'
-require 'socket'
 require 'stringio'
+require 'yaml'
 
 # Test for broken pack/unpack
 if [1].pack('n') == "\001\000"
@@ -32,15 +32,16 @@ end
 # Of particular interest are OSC::Client, OSC::Server, OSC::Message and
 # OSC::Bundle.
 module OSC
-  MAX_MSG_SIZE=32768
   # 64-bit big-endian fixed-point time tag
   class TimeTag
     JAN_1970 = 0x83aa7e80
     # nil:: immediately
     # Numeric:: seconds since January 1, 1900 00:00
-    # Array:: int,frac parts of a TimeTag.
-    # Time:: convert from Ruby's Time
-    def initialize(t)
+    # Numeric,Numeric:: int,frac parts of a TimeTag.
+    # Time:: convert from Time object
+    def initialize(*args)
+      t = args
+      t = t.first if t and t.size == 1
       case t
       when NIL # immediately
 	@int = 0
@@ -54,10 +55,10 @@ module OSC
 	@int, fr = (t.to_f+JAN_1970).divmod(1)
 	@frac = (fr * (2**32)).to_i
       else
-	raise ArgumentError, 'invalid time'
+	raise ArgumentError
       end
     end
-    # Integer part
+    attr_accessor :int, :frac
     def to_i; to_f.to_i; end
     # Ruby's Float can handle the 64 bits so we have the luxury of dealing with
     # Float directly
@@ -68,7 +69,14 @@ module OSC
     def to_s; to_time.to_s; end
     # Ruby Time object
     def to_time; Time.at(to_f-JAN_1970); end
+    alias :time :to_time
     def self.now; TimeTag.new(Time.now); end
+    def method_missing(sym, *args)
+      time.__send__(sym, *args)
+    end
+    def to_yaml
+      to_a.to_yaml
+    end
   end
 
   class Blob < String
@@ -76,38 +84,67 @@ module OSC
 
   class Message
     attr_accessor :address, :args
+    # The source of this message, i.e. the Server from which it originated (nil
+    # if it didn't originate from a Server)    
+    attr_accessor :source
 
-    # Address pattern, type tag string, and arguments. See the OSC
-    # documentation for more details.
-    # Arguments will be coerced into the appropriate type tags.
-    def initialize(address, tags=nil, *args)
+    # address:: The OSC address (a String)
+    # types:: The OSC type tags string
+    # args:: arguments. must match type tags in arity
+    #
+    # Example:
+    #   Message.new('/foo','ff', Math::PI, Math::E)
+    #
+    # Arguments will be coerced as indicated by the type tags. If types is nil,
+    # type tags will be inferred from arguments.
+    def initialize(address, types=nil, *args)
+      if types and types.size != args.size
+        raise ArgumentError, 'type/args arity mismatch'
+      end
+
       @address = address
       @args = []
-      args.each_with_index do |arg, i|
-	if tags and tags[i]
-	  case tags[i]
-	  when ?i; @args << arg.to_i
-	  when ?f; @args << arg.to_f
-	  when ?s; @args << arg.to_s
-	  when ?b; @args << Blob.new(arg.to_s)
-	  else
-	    raise ArgumentError, 'unknown type tag'
-	  end
-	else
-	  case arg
-	  when Fixnum,Float,String,TimeTag,Blob
-	    @args << arg
-	  end
-	end
+
+      if types
+        args.each_with_index do |arg, i|
+          case types[i]
+          when ?i; @args << arg.to_i
+          when ?f; @args << arg.to_f
+          when ?s; @args << arg.to_s
+          when ?b; @args << Blob.new(arg)
+          else
+            raise ArgumentError, "unknown type tag '#{@types[i].inspect}'"
+          end
+        end
+      else
+        args.each do |arg|
+          case arg
+          when Fixnum,Float,String,TimeTag,Blob
+            @args << arg
+          else
+            raise ArgumentError, "Object has unknown OSC type: '#{arg}'"
+          end
+        end
       end
     end
 
-    def tags
-      ',' + @args.collect{|x| Packet.tag(x)}.join
+    def types
+      @args.collect {|a| Packet.tag a}.join
     end
+    alias :typetag :types
 
-    # Array of the arguments
-    def to_a; @args; end
+    # Encode this message for transport
+    def encode
+      Packet.encode(self)
+    end
+    # string representation. *not* the raw representation, for that use
+    # encode.
+    def to_s
+      "#{address},#{types},#{args.collect{|a| a.to_s}.join(',')}"
+    end
+    def to_yaml
+      {'address'=>address, 'types'=>types, 'args'=>args}.to_yaml
+    end
 
     extend Forwardable
     include Enumerable
@@ -125,7 +162,10 @@ module OSC
   class Bundle
     attr_accessor :timetag 
     attr_accessor :args
+    alias :timestamp :timetag
     alias :messages :args
+    alias :contents :args
+    alias :to_a :args
 
     # New bundle with time and messages
     def initialize(t=nil, *args)
@@ -139,10 +179,9 @@ module OSC
       @args = args
     end
 
-    # The messages in this bundle
-    def contents; @args; end
-    alias :to_a :contents
-
+    def to_yaml
+      {'timestamp'=>timetag, 'contents'=>contents}.to_yaml
+    end
 
     extend Forwardable
     include Enumerable
@@ -199,17 +238,15 @@ module OSC
       # will convert it someday...
       io = StringIO.new(packet)
       id = decode_string(io)
-      if id =~ /\A\#/
-	if id == '#bundle'
-	  b = Bundle.new(decode_timetag(io))
-	  until io.eof?
-	    l = io.read(4).unpack('N')[0]
-	    s = io.read(l)
-	    b << decode(s)
-	  end
-	  b
-	end
-      elsif id =~ /\//
+      if id == '#bundle'
+        b = Bundle.new(decode_timetag(io))
+        until io.eof?
+          l = io.read(4).unpack('N')[0]
+          s = io.read(l)
+          b << decode(s)
+        end
+        b
+      elsif id =~ /^\//
 	m = Message.new(id)
 	if io.getc == ?,
 	  tags = decode_string(io)
@@ -262,7 +299,7 @@ module OSC
 
       when Message
 	s = encode(o.address)
-	s << encode(o.tags)
+	s << encode(','+o.types)
 	s << o.args.collect{|x| encode(x)}.join
 
       when Bundle
@@ -277,91 +314,8 @@ module OSC
     private_class_method :decode_int32, :decode_float32, :decode_string,
       :decode_blob, :decode_timetag
   end
-
-  # Mixin for making servers.
-  # Your job is to read a packet and call dispatch(Packet.decode(raw)), ad
-  # infinitum. You might mixin Client too for sending replies.
-  module Server
-    # 	prock.respond_to?(:call) #=> true
-    # Pass an OSC pattern and either prock or a block.
-    def add_method(pat, prock=nil, &block)
-      pat = Pattern.new(pat) unless Pattern === pat
-      if block_given? and prock
-	raise ArgumentError, 'Specify either a block or a Proc, not both.'
-      end
-      prock = block if block_given?
-      unless prock.respond_to?(:call)
-	raise ArgumentError, "Prock doesn't respond to :call"
-      end
-      @cb ||= []
-      @cb << [pat, prock]
-    end
-
-    # dispatch the provided message. It can be raw or already decoded with
-    # Packet.decode
-    def dispatch(mesg)
-      unless Bundle === mesg or Message === mesg
-        mesg = Packet.decode(mesg)
-      end
-
-      case mesg
-      when Bundle; dispatch_bundle(mesg)
-      when Message
-	@cb.each do |pat, obj|
-	  if pat.nil? or Pattern.intersect?(pat, mesg.address)
-	    obj.call(mesg)
-	  end
-	end unless @cb.nil?
-      else
-	raise ArgumentError, "bad mesg"
-      end
-    end
-
-    # May create a new thread to wait to dispatch according to p.timetag.
-    def dispatch_bundle(p)
-      diff = p.timetag.to_f - TimeTag.now
-      if diff <= 0
-	p.each {|m| dispatch m}
-      else
-	Thread.new do
-	  sleep diff
-	  p.each {|m| dispatch m}
-	end
-      end
-    end
-  end
-
-  # Mixin for clients
-  module Client
-    # Message, Bundle, or as a shortcut the parameters to construct a Message.
-    def encode(payload)
-      case payload
-      when Message,Bundle
-      when Array
-	payload = Message.new(*payload)
-      else 
-	raise ArgumentError
-      end
-      Packet.encode(payload)
-    end
-  end
-
-  class UDPClient < UDPSocket
-    include Client
-    def send(mesg, flags, *args)
-      super encode(mesg), flags, *args
-    end
-  end
-
-  class UDPServer < UDPSocket
-    include Server
-    def serve
-      loop do
-	p,@peer = recvfrom(MAX_MSG_SIZE)
-	dispatch Packet.decode(p)
-      end
-    end
-  end
 end
 
 require 'osc/pattern'
+require 'osc/server'
+require 'osc/udp'

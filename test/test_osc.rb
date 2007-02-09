@@ -73,7 +73,7 @@ class TC_OSC < Test::Unit::TestCase
     assert_equal m.address,m2.address
     m2 = Packet.decode(Packet.encode(m))
     assert_equal m.address,m2.address
-    assert_equal m.tags,m2.tags
+    assert_equal m.typetag,m2.typetag
     assert_equal m.args.size,m2.args.size
     b2 = Packet.decode(Packet.encode(b))
     assert_equal b.args.size,b2.args.size
@@ -82,14 +82,14 @@ class TC_OSC < Test::Unit::TestCase
   def test_server
     s = UDPServer.new
     s.bind('localhost','12345')
-    s.add_method('/foo/bar') { |msg| 
-      assert_equal 'si',msg.tags
+    s.add_method('/foo/bar',nil) { |msg| 
+      assert_equal 'si',msg.typetag
       assert_equal 'Hello, World!',msg[0]
       assert_equal 42,msg[1]
     }
     t = Thread.new { s.serve } 
 
-    c = UDPClient.new
+    c = UDPSocket.new
     c.connect('localhost','12345')
     c.send(Message.new("/foo/bar",'si','Hello, World!',42),0)
 

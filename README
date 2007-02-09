@@ -27,6 +27,10 @@
 == Requirements
 - Ruby
 
+== Installation
+
+    sudo ruby setup.rb
+
 == Details
 See the OSC home page[1], especially the "State of the Art" paper (for an
 overview) and the specification. This library makes OSC easy, but you will

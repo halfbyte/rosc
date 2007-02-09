@@ -38,6 +38,8 @@ module OSC
     JAN_1970 = 0x83aa7e80
     # nil:: immediately
     # Numeric:: seconds since January 1, 1900 00:00
+    # Array:: int,frac parts of a TimeTag.
+    # Time:: convert from Ruby's Time
     def initialize(t)
       case t
       when NIL # immediately
@@ -55,12 +57,18 @@ module OSC
 	raise ArgumentError, 'invalid time'
       end
     end
+    # Integer part
     def to_i; to_f.to_i; end
+    # Ruby's Float can handle the 64 bits so we have the luxury of dealing with
+    # Float directly
     def to_f; @int.to_f + @frac.to_f/(2**32); end
+    # [int,frac]
     def to_a; [@int,@frac]; end
+    # Human-readable, like the output of Time#to_s
     def to_s; to_time.to_s; end
+    # Ruby Time object
     def to_time; Time.at(to_f-JAN_1970); end
-    def now; TimeTag.new(Time.now); end
+    def self.now; TimeTag.new(Time.now); end
   end
 
   class Blob < String
@@ -71,6 +79,7 @@ module OSC
 
     # Address pattern, type tag string, and arguments. See the OSC
     # documentation for more details.
+    # Arguments will be coerced into the appropriate type tags.
     def initialize(address, tags=nil, *args)
       @address = address
       @args = []
@@ -97,6 +106,7 @@ module OSC
       ',' + @args.collect{|x| Packet.tag(x)}.join
     end
 
+    # Array of the arguments
     def to_a; @args; end
 
     extend Forwardable
@@ -113,8 +123,11 @@ module OSC
 
   # bundle of messages and/or bundles
   class Bundle
-    attr_accessor :timetag, :args
+    attr_accessor :timetag 
+    attr_accessor :args
+    alias :messages :args
 
+    # New bundle with time and messages
     def initialize(t=nil, *args)
       @timetag = 
 	case t
@@ -126,8 +139,9 @@ module OSC
       @args = args
     end
 
+    # The messages in this bundle
     def contents; @args; end
-    def to_a; contents; end
+    alias :to_a :contents
 
 
     extend Forwardable
@@ -269,9 +283,9 @@ module OSC
   # infinitum. You might mixin Client too for sending replies.
   module Server
     # 	prock.respond_to?(:call) #=> true
-    # Pass either prock or a block.
+    # Pass an OSC pattern and either prock or a block.
     def add_method(pat, prock=nil, &block)
-      pat = Pattern.new(pat)
+      pat = Pattern.new(pat) unless Pattern === pat
       if block_given? and prock
 	raise ArgumentError, 'Specify either a block or a Proc, not both.'
       end
@@ -283,7 +297,13 @@ module OSC
       @cb << [pat, prock]
     end
 
+    # dispatch the provided message. It can be raw or already decoded with
+    # Packet.decode
     def dispatch(mesg)
+      unless Bundle === mesg or Message === mesg
+        mesg = Packet.decode(mesg)
+      end
+
       case mesg
       when Bundle; dispatch_bundle(mesg)
       when Message

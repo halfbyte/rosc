@@ -1,6 +1,7 @@
 require 'set'
 module OSC
   class Pattern < String
+    # Create an OSC pattern from a string or (experimental) from a Regex.
     def initialize(s)
       case s
       when Regexp # This is experimental
@@ -16,6 +17,7 @@ module OSC
       super s
     end
 
+    # Return a Regex representing this pattern
     def regexp
       s = Regexp.escape self
       s.gsub! /\\\?/, '[^/]'

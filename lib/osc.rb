@@ -84,8 +84,8 @@ module OSC
 
   class Message
     attr_accessor :address, :args
-    # The source of this message, i.e. the Server from which it originated (nil
-    # if it didn't originate from a Server)    
+    # The source of this message, usually something like ["AF_INET", 50475,
+    # 'localhost','127.0.0.1']
     attr_accessor :source
 
     # address:: The OSC address (a String)

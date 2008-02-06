@@ -80,7 +80,7 @@ module OSC
 
     # May create a new thread to wait to dispatch according to p.timetag.
     def dispatch_bundle(p)
-      diff = p.timetag.to_f - TimeTag.now
+      diff = p.timetag.to_f - TimeTag.now.to_f
       if diff <= 0
 	p.each {|m| dispatch m}
       else

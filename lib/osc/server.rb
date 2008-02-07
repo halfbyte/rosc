@@ -82,11 +82,11 @@ module OSC
     def dispatch_bundle(p)
       diff = p.timetag.to_f - TimeTag.now.to_f
       if diff <= 0
-	p.each {|m| dispatch m}
+	p.each {|m| m.source = p.source; dispatch m}
       else
 	Thread.new do
 	  sleep diff
-	  p.each {|m| dispatch m}
+	  p.each {|m| m.source = p.source; dispatch m}
 	end
       end
     end

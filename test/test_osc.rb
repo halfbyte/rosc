@@ -1,3 +1,4 @@
+$:.unshift(File.dirname(__FILE__) + "/../lib/")
 require 'osc'
 require 'time'
 require 'test/unit'
@@ -19,7 +20,7 @@ class TC_OSC < Test::Unit::TestCase
     assert_equal 'f', Packet.tag(f)
     assert_equal 's', Packet.tag(s)
     assert_equal s+"\000", Packet.encode(s)
-    b = Blob.new(File.read($0))
+    b = Blob.new("foobardoobar\0\0x200")
     assert_equal 'b', Packet.tag(b)
     assert_equal b.size+4 + (b.size+4)%4, Packet.encode(b).size
   end
@@ -63,7 +64,14 @@ class TC_OSC < Test::Unit::TestCase
     assert_instance_of Array, b2.to_a
     assert_instance_of Bundle, b2.to_a[0]
     assert_instance_of Message, b2.to_a[1]
+
+    bundle = Packet.decode(e)
+    assert_instance_of Bundle, bundle
+    
+
   end
+
+
 
   def test_packet
     m = Message.new '/foo','s','foo'
@@ -79,24 +87,37 @@ class TC_OSC < Test::Unit::TestCase
     assert_equal b.args.size,b2.args.size
   end
 
+  class TestServer
+    include OSC::Transport
+    include OSC::Server
+    def test_request(p)
+      send p
+    end
+    
+    def send_raw(msg, *args)
+      dispatch msg
+    end
+    
+  end
+
   def test_server
-    s = UDPServer.new
-    s.bind('localhost','12345')
+    s = TestServer.new
     s.add_method('/foo/bar',nil) { |msg| 
       assert_equal 'si',msg.typetag
       assert_equal 'Hello, World!',msg[0]
       assert_equal 42,msg[1]
-    }
-    t = Thread.new { s.serve } 
+    }    
+    s.test_request Message.new("/foo/bar",'si','Hello, World!',42)
+  end
 
-    c = UDPSocket.new
-    c.connect('localhost','12345')
-    c.send(Message.new("/foo/bar",'si','Hello, World!',42),0)
-
-    Thread.new { 
-      sleep 1
-      Thread.kill t
-    }
+  def test_server_with_bundle
+    s = TestServer.new
+    s.add_method('/foo/bar',nil) { |msg| 
+      assert_equal 'si',msg.typetag
+      assert_equal 'Hello, World!',msg[0]
+      assert_equal 42,msg[1]
+    }    
+    s.test_request Bundle.new(nil, Message.new("/foo/bar",'si','Hello, World!',42), Message.new("/foo/bar",'si','Hello, World!',42), Message.new("/foo/bar",'si','Hello, World!',42))
   end
 
   def test_pattern

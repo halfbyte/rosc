@@ -162,6 +162,7 @@ module OSC
   class Bundle
     attr_accessor :timetag 
     attr_accessor :args
+    attr_accessor :source
     alias :timestamp :timetag
     alias :messages :args
     alias :contents :args
@@ -193,6 +194,11 @@ module OSC
     def_delegators(:@args, *de)
 
     undef_method :zip
+    
+    def encode
+      Packet.encode(self)
+    end
+    
   end
 
   # Unit of transmission.  Really needs revamping
